@@ -18,6 +18,10 @@ const renderSchema = new mongoose.Schema({
     type: String,
     enum: ['pending', 'completed', 'failed'],
     default: 'pending'
+  },
+  generatedImageUrl: {
+  type: String,
+  default: ''
   }
 }, { timestamps: true });
 
