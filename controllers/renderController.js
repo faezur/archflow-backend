@@ -1,18 +1,42 @@
 const Render = require('../models/Render');
 const cloudinary = require('cloudinary').v2;
 const axios = require('axios');
+const Groq = require('groq-sdk');
 const FormData = require('form-data');
-const getPrompt = require('../config/prompt');
 
-const getBedrooms = (bhk) => {
-  const map = {
-    '1BHK': '1 bedroom', '2BHK': '2 bedrooms',
-    '3BHK': '3 bedrooms', '4BHK': '4 bedrooms',
-    '5BHK': '5 bedrooms', '6BHK': '6 bedrooms',
-  };
-  return map[bhk] || '2 bedrooms';
+const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
+
+// Retry Helper
+// fn = async function to retry
+// retries = max attempts
+// delay = ms between attempts (doubles each time)
+const withRetry = async (fn, retries = 3, delay = 2000, label = '') => {
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      const status = err.response?.status;
+      const isRateLimit = status === 429;
+      const isServerError = status >= 500 && status < 600;
+      const shouldRetry = isRateLimit || isServerError;
+
+      console.warn(`${label} attempt ${attempt}/${retries} failed — status: ${status || 'N/A'} | ${err.message}`);
+
+      if (attempt === retries || !shouldRetry) {
+        console.error(`${label} all retries exhausted`);
+        throw err;
+      }
+
+      // Rate limit → wait longer (Retry-After header respect karo)
+      const retryAfter = err.response?.headers?.['retry-after'];
+      const waitTime = retryAfter ? parseInt(retryAfter) * 1000 : delay * attempt;
+      console.log(`${label} waiting ${waitTime / 1000}s before retry...`);
+      await new Promise(r => setTimeout(r, waitTime));
+    }
+  }
 };
 
+// Cloudinary Upload
 const uploadToCloudinary = (buffer, folder) => {
   return new Promise((resolve, reject) => {
     const stream = cloudinary.uploader.upload_stream(
@@ -26,62 +50,154 @@ const uploadToCloudinary = (buffer, folder) => {
   });
 };
 
-const createRender = async (req, res) => {
-  try {
-    const { bhk } = req.body;
-    const bedrooms = getBedrooms(bhk);
+// Groq Floor Plan Analysis
+const analyzeFloorPlan = async (imageUrl) => {
+  return withRetry(async () => {
+    const response = await groq.chat.completions.create({
+      model: 'meta-llama/llama-4-scout-17b-16e-instruct',
+      messages: [
+        {
+          role: 'user',
+          content: [
+            { type: 'image_url', image_url: { url: imageUrl } },
+            {
+              type: 'text',
+              text: `You are an architectural floor plan analysis engine. The user will provide a 2D floor plan image. Analyze the image and convert the visible layout into a Stable Diffusion prompt for generating a realistic 3D top-down architectural render.Identify visible spaces such as bedrooms, living rooms, kitchens, dining areas, washrooms, parking areas, corridors, utility areas, store rooms, terraces, balconies and open spaces. Describe the layout using spatial directions relative to the image such as top, bottom, left, right and center so the structure of the plan remains clear. Mention visible doors, windows, walls and partitions.If a rectangular or boxed area contains multiple parallel lines or step-like markings, describe it exactly as visible such as “a rectangular area with parallel lines” without assuming its purpose.If any symbols, shafts, ducts, or open void areas appear but their function is unclear, describe them exactly as they appear instead of interpreting them.If room labels are visible, add simple furniture based on the room type such as beds in bedrooms, sofa in living areas, cabinets and stove in kitchens, toilet and sink in bathrooms, dining table in dining areas, washing machine in utility areas and a parked car in parking areas. Do not invent rooms or elements that are not visible.Scan the floor plan like a grid from top to bottom and left to right and describe each row of spaces sequentially so the spatial arrangement stays accurate.Write a single paragraph Stable Diffusion prompt under 650 characters and end with photorealistic top-down aerial view white walls wooden floors bright lighting. Output only the prompt text without explanations. Strictly keep the final prompt under 600 characters.`    
+             }
+          ]
+        }
+      ],
+      max_tokens: 500,
+    });
 
-    const imageUrl = await uploadToCloudinary(req.file.buffer, 'archflow/uploads');
+    return response.choices[0].message.content
+      .trim()
+      .replace(/\n/g, ' ')
+      .replace(/;/g, ',')
+      .replace(/\s+/g, ' ')
+      .slice(0, 700);
 
+  }, 3, 3000, 'Groq');
+};
+
+// Stability AI Image Generation
+const generateWithStability = async (fileBuffer, prompt) => {
+  return withRetry(async () => {
     const formData = new FormData();
-    const prompt = getPrompt(bedrooms);
+    formData.append('image', fileBuffer, {
+      filename: 'floorplan.png',
+      contentType: 'image/png',
+    });
     formData.append('prompt', prompt);
-    formData.append('negative_prompt', 'swimming pool, garden, luxury villa, exterior, trees, sky, pool, outdoor');
+    formData.append('negative_prompt', '2D, flat, sketch, blueprint, text, labels, dimensions, arrows, blurry, ugly, low quality, cartoon, painting');
     formData.append('output_format', 'png');
 
-
     const response = await axios.post(
-      'https://api.stability.ai/v2beta/stable-image/generate/core',
+      'https://api.stability.ai/v2beta/stable-image/control/structure',
       formData,
       {
-        validateStatus: undefined,
-        responseType: 'arraybuffer',
         headers: {
           ...formData.getHeaders(),
-          Authorization: `Bearer ${process.env.STABILITY_API_KEY}`,
-          Accept: 'image/*',
+          'Authorization': `Bearer ${process.env.STABILITY_API_KEY}`,
+          'Accept': 'image/*',
         },
+        responseType: 'arraybuffer',
+        timeout: 120000,
       }
     );
 
-    if (response.status !== 200) {
-      throw new Error(`Stability AI error: ${response.status}`);
+    if (response.data.byteLength < 5000) {
+      throw new Error('Stability returned invalid image');
     }
 
-    const generatedImageUrl = await uploadToCloudinary(response.data, 'archflow/generated');
+    return Buffer.from(response.data);
 
+  }, 3, 5000, 'Stability AI');
+};
+
+// Create Render
+const createRender = async (req, res) => {
+  try {
+    // Step 1: Upload original floor plan to Cloudinary
+    const uploadedImageUrl = await uploadToCloudinary(req.file.buffer, 'archflow/uploads');
+    console.log('Cloudinary upload done');
+
+    // Step 2: Groq — analyze floor plan (with retry)
+    const groqPrompt = await analyzeFloorPlan(uploadedImageUrl);
+    console.log('Groq Prompt:', groqPrompt);
+    console.log('Prompt length:', groqPrompt.length);
+
+    // Step 3: Stability AI — generate 3D render (with retry)
+    console.log('Calling Stability AI...');
+    const imageBuffer = await generateWithStability(req.file.buffer, groqPrompt);
+    console.log('Stability image generated | Size:', imageBuffer.byteLength);
+
+    // Step 4: Upload generated image to Cloudinary
+    const generatedImageUrl = await uploadToCloudinary(imageBuffer, 'archflow/generated');
+    console.log('Generated image on Cloudinary:', generatedImageUrl);
+
+    // Step 5: Save to MongoDB
     const render = await Render.create({
       user: req.user._id,
-      imageUrl,
+      imageUrl: uploadedImageUrl,
       generatedImageUrl,
-      bhk,
       status: 'completed',
     });
 
     res.status(201).json(render);
 
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    console.error('createRender error:', error.message);
+
+    // User friendly error messages
+    const status = error.response?.status;
+    let message = 'Something went wrong. Please try again.';
+
+    if (status === 429) message = 'Too many requests. Please wait a moment and try again.';
+    else if (status === 402) message = 'Service credits exhausted. Please try again later.';
+    else if (status === 401) message = 'API authentication failed. Please contact support.';
+    else if (status >= 500) message = 'AI service is temporarily unavailable. Please try again in a few seconds.';
+    else if (error.message.includes('timeout')) message = 'Request timed out. Please try again.';
+
+    res.status(500).json({ message });
   }
 };
 
+// Get Renders
 const getRenders = async (req, res) => {
   try {
-    const renders = await Render.find({ user: req.user._id });
+    const renders = await Render.find({ user: req.user._id }).sort({ createdAt: -1 });
     res.status(200).json(renders);
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
 };
 
-module.exports = { createRender, getRenders };
+// Delete Render
+const deleteRender = async (req, res) => {
+  try {
+    const render = await Render.findById(req.params.id);
+    if (!render) return res.status(404).json({ message: 'Render not found' });
+    if (render.user.toString() !== req.user._id.toString()) {
+      return res.status(401).json({ message: 'Not authorized' });
+    }
+
+    const extractPublicId = (url) => {
+      const parts = url.split('/');
+      const file = parts[parts.length - 1].split('.')[0];
+      const folder = parts[parts.length - 2];
+      return `${folder}/${file}`;
+    };
+
+    if (render.imageUrl) await cloudinary.uploader.destroy(extractPublicId(render.imageUrl));
+    if (render.generatedImageUrl) await cloudinary.uploader.destroy(extractPublicId(render.generatedImageUrl));
+
+    await render.deleteOne();
+    res.status(200).json({ message: 'Render deleted' });
+
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+module.exports = { createRender, getRenders, deleteRender };

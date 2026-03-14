@@ -13,7 +13,9 @@ const userSchema = new mongoose.Schema({
   password: {
     type: String,
     required: true
-  }
+  },
+  googleId: { type: String },
+  password: { type: String, required: false },
 }, { timestamps: true });
 
 module.exports = mongoose.model('User', userSchema);

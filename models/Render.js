@@ -10,10 +10,7 @@ const renderSchema = new mongoose.Schema({
     type: String,
     required: true
   },
-  bhk: {
-    type: String,
-    required: true
-  },
+  
   status: {
     type: String,
     enum: ['pending', 'completed', 'failed'],
