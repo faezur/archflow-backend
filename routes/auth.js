@@ -20,7 +20,7 @@ router.get('/me', protect, (req, res) => {
 // Step 2: Google callback —create JWT and send frontend
 router.get('/google/callback',
   passport.authenticate('google', { 
-    failureRedirect: 'http://localhost:5173/login?error=google_failed', 
+    failureRedirect: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/login?error=google_failed`,
     session: false 
   }),
   (req, res) => {
@@ -29,7 +29,8 @@ router.get('/google/callback',
       process.env.JWT_SECRET,
       { expiresIn: '7d' }
     );
-    res.redirect(`http://localhost:5173/auth/callback?token=${token}`);
+    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+    res.redirect(`${frontendUrl}/auth/callback?token=${token}`);
   }
 );
 
