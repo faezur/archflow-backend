@@ -24,6 +24,9 @@
 ### Home Page
 ![Home Page](./screenshot/home.png)
 
+### Sample Page
+![Sapmle Page](./screenshot/sample.png)
+
 ### Generate Page
 ![Generate Page](./screenshot/generate.png)
 
