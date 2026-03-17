@@ -1,7 +1,5 @@
 >  This is the Backend repository. Frontend repo: [archflow](https://github.com/faezur/archflow)
 
->  This is the Frontend repository. Backend repo: [archflow-backend](https://github.com/faezur/archflow-backend)
-
 # ArchFlow — AI Architectural Render Generator
 
 > Transform your 2D floor plans into photorealistic 3D renders using AI
