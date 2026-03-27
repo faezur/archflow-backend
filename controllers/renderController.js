@@ -90,6 +90,8 @@ const generateWithStability = async (fileBuffer, prompt) => {
     formData.append('prompt', prompt);
     formData.append('negative_prompt', '2D, flat, sketch, blueprint, text, labels, dimensions, arrows, blurry, ugly, low quality, cartoon, painting');
     formData.append('output_format', 'png');
+    formData.append('strength', '0.85'); 
+    formData.append('cfg_scale', '7');
 
     const response = await axios.post(
       'https://api.stability.ai/v2beta/stable-image/control/structure',
