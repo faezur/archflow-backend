@@ -19,7 +19,11 @@ const renderSchema = new mongoose.Schema({
   generatedImageUrl: {
   type: String,
   default: ''
-  }
+  },
+  groqPrompt: {
+    type: String,
+    default: ''
+  },
 }, { timestamps: true });
 
 module.exports = mongoose.model('Render', renderSchema);
