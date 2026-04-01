@@ -24,6 +24,7 @@
     "express-session": "^1.19.0",
     "form-data": "^4.0.5",
     "groq-sdk": "^0.37.0",
+    "joi": "^17.13.3",
     "jsonwebtoken": "^9.0.3",
     "mongoose": "^8.23.0",
     "multer": "^2.1.1",

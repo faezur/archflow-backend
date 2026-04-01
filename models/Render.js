@@ -1,29 +1,35 @@
 const mongoose = require('mongoose');
+const { Schema } = mongoose;
 
-const renderSchema = new mongoose.Schema({
+const renderSchema = new Schema({
   user: {
-    type: mongoose.Schema.Types.ObjectId,
+    type: Schema.Types.ObjectId,
     ref: 'User',
     required: true
   },
+
   imageUrl: {
     type: String,
     required: true
   },
-  
+
   status: {
     type: String,
     enum: ['pending', 'completed', 'failed'],
-    default: 'pending'
+    default: 'pending',
+    required: true
   },
+
   generatedImageUrl: {
-  type: String,
-  default: ''
+    type: String,
+    default: null
   },
+
   groqPrompt: {
     type: String,
-    default: ''
-  },
+    default: null
+  }
+
 }, { timestamps: true });
 
 module.exports = mongoose.model('Render', renderSchema);

@@ -1,11 +1,27 @@
 const User = require('../models/User');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const { userSchema, loginSchema } = require('../middleware/userValidation');
 
 // Register
 const register = async (req, res) => {
   try {
+    // ✅ STEP 1: Joi Validation
+   const { error } = userSchema.validate(req.body);
+    if (error) {
+      return res.status(400).json({
+        message: error.details[0].message
+      });
+    }
+
     const { name, email, password } = req.body;
+
+    // ✅ STEP 2: Custom logic
+    if (!password) {
+      return res.status(400).json({
+        message: "Password is required"
+      });
+    }
 
     // User already exists
     const userExists = await User.findOne({ email });
@@ -31,7 +47,11 @@ const register = async (req, res) => {
       { expiresIn: '30d' }
     );
 
-    res.status(201).json({ token, name: user.name, email: user.email });
+    res.status(201).json({
+      token,
+      name: user.name,
+      email: user.email
+    });
 
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -41,6 +61,14 @@ const register = async (req, res) => {
 // Login
 const login = async (req, res) => {
   try {
+    // ✅ STEP 1: Basic Joi validation (reuse same schema)
+    const { error } = loginSchema.validate(req.body);
+    if (error) {
+      return res.status(400).json({
+        message: error.details[0].message
+      });
+    }
+
     const { email, password } = req.body;
 
     // User exists?
@@ -55,14 +83,18 @@ const login = async (req, res) => {
       return res.status(400).json({ message: 'Invalid credentials' });
     }
 
-    //create Token
+    // Create Token
     const token = jwt.sign(
       { id: user._id },
       process.env.JWT_SECRET,
       { expiresIn: '30d' }
     );
 
-    res.status(200).json({ token, name: user.name, email: user.email });
+    res.status(200).json({
+      token,
+      name: user.name,
+      email: user.email
+    });
 
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -70,4 +102,3 @@ const login = async (req, res) => {
 };
 
 module.exports = { register, login };
-

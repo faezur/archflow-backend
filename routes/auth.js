@@ -4,9 +4,10 @@ const { register, login } = require('../controllers/authController');
 const passport = require('passport');
 const jwt = require('jsonwebtoken');
 const { protect } = require ('../middleware/authMiddleware')
+const { validate, userSchema, loginSchema } = require('../middleware/userValidation')
 
-router.post('/register', register);
-router.post('/login', login);
+router.post('/register', validate(userSchema), register);
+router.post('/login', validate(loginSchema), login);
 
 // Step 1: Google redirect
 router.get('/google',
