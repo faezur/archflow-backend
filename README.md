@@ -88,6 +88,16 @@
 
 ---
 
+##  Why This Project?
+
+This project demonstrates:
+
+- Full-stack MERN development  
+- Real-world AI integration  
+- Authentication & secure API design  
+- Image processing & cloud storage handling  
+- Clean backend structure with validation (Joi)  
+
 ##  API Endpoints
 
 | Method | Endpoint | Auth | Description |
