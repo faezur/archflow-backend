@@ -1,8 +1,8 @@
 >  This is the Backend repository. Frontend repo: [archflow](https://github.com/faezur/archflow)
 
-# ArchFlow — AI Architectural Render Generator
+# ArchFlow — AI Floor Plan Analyzer
 
-> Transform your 2D floor plans into photorealistic 3D renders using AI
+> ArchFlow is an AI-powered system that converts 2D floor plans into intelligent, structured architectural visualizations. It helps users quickly understand spatial layouts by generating realistic top-down renders from simple floor plan images.
 
 [![Live Demo](https://img.shields.io/badge/Live-Demo-amber?style=for-the-badge)](https://arch-flow-mu.vercel.app)
 [![Frontend](https://img.shields.io/badge/Frontend-React-blue?style=for-the-badge)](https://github.com/faezur/archflow)
@@ -23,7 +23,7 @@
 ![Home Page](./screenshot/home.png)
 
 ### Sample Page
-![Sapmle Page](./screenshot/sample.png)
+![Sample Page](./screenshot/sample.png)
 
 ### Generate Page
 ![Generate Page](./screenshot/generate.png)
@@ -36,18 +36,18 @@
 
 ---
 
-##  Features
+## 🚀 Features
 
--  **Floor Plan Upload** — Drag & drop or click to upload 2D floor plan
--  **AI Analysis** — AI analyzes rooms, dimensions and spatial layout
--  **3D Render Generation** — Photorealistic top-down architectural render
--  **JWT Authentication** — Secure register & login
--  **Google OAuth** — One click sign in with Google
--  **Render History** — View, download and delete your renders
--  **Image Compare Slider** — Compare original vs generated
--  **Cloud Storage** — All images stored on cloud
--  **Fully Responsive** — Works on all screen sizes
--  **Retry Logic** — Auto retry on API rate limits
+- 📤 **Floor Plan Upload** — Upload 2D plans via drag & drop or file selection  
+- 🤖 **AI-Powered Analysis** — Detects rooms, layout, and spatial relationships  
+- 🏗️ **3D Render Generation** — Generates realistic architectural visualizations  
+- 🔐 **Secure Authentication** — JWT-based login & signup system  
+- 🌐 **Google OAuth** — One-click login with Google  
+- 🗂️ **Render History** — Save, view, download, and delete past renders  
+- 🔄 **Compare Slider** — Compare original vs generated output  
+- ☁️ **Cloud Storage** — Secure image storage using Cloudinary  
+- 📱 **Responsive UI** — Optimized for all devices  
+- ⚡ **Retry Logic** — Handles API failures and rate limits automatically  
 
 ---
 
@@ -97,9 +97,9 @@
 | GET | `/api/auth/google` | No | Google OAuth |
 | GET | `/api/auth/google/callback` | No | Google callback |
 | GET | `/api/auth/me` | Bearer | Get current user |
-| POST | `/api/renders` | Bearer | Create render |
-| GET | `/api/renders` | Bearer | Get all renders |
-| DELETE | `/api/renders/:id` | Bearer | Delete render |
+| POST | `/api/generate` | Bearer | Create render |
+| GET | `/api/generate` | Bearer | Get all renders |
+| DELETE | `/api/generate/:id` | Bearer | Delete render |
 
 ---
 
