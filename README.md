@@ -107,9 +107,9 @@ This project demonstrates:
 | GET | `/api/auth/google` | No | Google OAuth |
 | GET | `/api/auth/google/callback` | No | Google callback |
 | GET | `/api/auth/me` | Bearer | Get current user |
-| POST | `/api/generate` | Bearer | Create render |
-| GET | `/api/generate` | Bearer | Get all renders |
-| DELETE | `/api/generate/:id` | Bearer | Delete render |
+| POST | `/api/renders` | Bearer | Create render |
+| GET | `/api/renders` | Bearer | Get all renders |
+| DELETE | `/api/renders/:id` | Bearer | Delete render |
 
 ---
 
