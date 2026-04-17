@@ -6,7 +6,7 @@ const { userSchema, loginSchema } = require('../middleware/userValidation');
 // Register
 const register = async (req, res) => {
   try {
-    // ✅ STEP 1: Joi Validation
+    // STEP 1: Joi Validation
    const { error } = userSchema.validate(req.body);
     if (error) {
       return res.status(400).json({
@@ -16,7 +16,7 @@ const register = async (req, res) => {
 
     const { name, email, password } = req.body;
 
-    // ✅ STEP 2: Custom logic
+    // STEP 2: Custom logic
     if (!password) {
       return res.status(400).json({
         message: "Password is required"
@@ -61,7 +61,7 @@ const register = async (req, res) => {
 // Login
 const login = async (req, res) => {
   try {
-    // ✅ STEP 1: Basic Joi validation (reuse same schema)
+    // STEP 1: Basic Joi validation (reuse same schema)
     const { error } = loginSchema.validate(req.body);
     if (error) {
       return res.status(400).json({

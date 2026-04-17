@@ -3,52 +3,11 @@ const { cloudinary } = require('../config/cloudinary');
 const axios = require('axios');
 const Groq = require('groq-sdk');
 const FormData = require('form-data');
+const { uploadToCloudinary } = require('../utils/cloudinaryHelper');
+const { withRetry } = require('../utils/withRetry');
 
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
-// ─── Retry Helper ─────────────────────────────────────────────────────────────
-const withRetry = async (fn, retries = 3, delay = 2000, label = '') => {
-  for (let attempt = 1; attempt <= retries; attempt++) {
-    try {
-      return await fn();
-    } catch (err) {
-      const status = err.response?.status || err.status;
-      const isRateLimit = status === 429;
-      const isServerError = status >= 500 && status < 600;
-      const shouldRetry = isRateLimit || isServerError;
-
-      console.warn(`⚠️ ${label} attempt ${attempt}/${retries} failed — status: ${status || 'N/A'} | ${err.message}`);
-
-      if (attempt === retries || !shouldRetry) {
-        console.error(`❌ ${label} all retries exhausted`);
-        throw err;
-      }
-
-      const retryAfter = err.response?.headers?.['retry-after'];
-      const waitTime = retryAfter ? parseInt(retryAfter) * 1000 : delay * attempt;
-      console.log(`⏳ ${label} waiting ${waitTime / 1000}s before retry...`);
-      await new Promise(r => setTimeout(r, waitTime));
-    }
-  }
-};
-
-// ─── Cloudinary Upload ────────────────────────────────────────────────────────
-const uploadToCloudinary = (buffer, folder) => {
-  return new Promise((resolve, reject) => {
-    const stream = cloudinary.uploader.upload_stream(
-      { folder },
-      (error, result) => {
-        if (error) reject(error);
-        else resolve(result.secure_url);
-      }
-    );
-    stream.end(buffer);
-  });
-};
-
-// ─── Groq: Floor Plan Analysis — base64 image directly ───────────────────────
-// Cloudinary URL Groq ke servers pe 403 deta hai
-// Solution: buffer ko base64 mein convert karke directly bhejo
 const analyzeFloorPlan = async (fileBuffer, mimeType = 'image/jpeg') => {
   return withRetry(async () => {
     const base64Image = fileBuffer.toString('base64')
@@ -62,7 +21,7 @@ const analyzeFloorPlan = async (fileBuffer, mimeType = 'image/jpeg') => {
           content: [
             {
               type: 'image_url',
-              image_url: { url: dataUrl }   // ← base64 data URL, not Cloudinary URL
+              image_url: { url: dataUrl }
             },
             {
               type: 'text',
@@ -84,19 +43,18 @@ const analyzeFloorPlan = async (fileBuffer, mimeType = 'image/jpeg') => {
   }, 3, 3000, 'Groq');
 };
 
-// ─── Stability AI: Image Generation ──────────────────────────────────────────
 const generateWithStability = async (fileBuffer, prompt) => {
   return withRetry(async () => {
     const formData = new FormData();
     formData.append('image', fileBuffer, {
       filename: 'floorplan.png',
-      contentType: 'image/png',
+      contentType: req.file.mimetype,
     });
     formData.append('prompt', prompt);
     formData.append('negative_prompt', '2D, flat, sketch, blueprint, text, labels, dimensions, arrows, blurry, ugly, low quality, cartoon, painting');
     formData.append('output_format', 'png');
     formData.append('strength', '0.85');
-    formData.append('cfg_scale', '7');
+    formData.append('cfg_scale', '8');
 
     const response = await axios.post(
       'https://api.stability.ai/v2beta/stable-image/control/structure',

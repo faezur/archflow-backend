@@ -8,7 +8,7 @@ const connectDB = require('./config/db');
 dotenv.config();
 connectDB();
 
-const app = express();
+const app = express();  
 
 const corsOptions = {
   origin: [
@@ -19,7 +19,6 @@ const corsOptions = {
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
 };
-
 app.use(cors(corsOptions));
 
 app.use(express.json());

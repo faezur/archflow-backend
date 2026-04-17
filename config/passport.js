@@ -1,7 +1,6 @@
 require('dotenv').config();
 const passport = require('passport');
 const GoogleStrategy = require('passport-google-oauth20').Strategy;
-const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 
 passport.use(
@@ -11,25 +10,20 @@ passport.use(
       clientSecret: process.env.GOOGLE_CLIENT_SECRET,
       callbackURL: process.env.GOOGLE_CALLBACK_URL,
     },
-    async (accessToken, refreshToken, profile, done) => {
+    async (profile, done) => {
       try {
-        // Check first exist or not?
         let user = await User.findOne({ email: profile.emails[0].value });
-
         if (user) {
-          // User exists — login
           return done(null, user);
         }
 
-        // create new user
         user = await User.create({
           name: profile.displayName,
           email: profile.emails[0].value,
-          password: 'google_oauth_' + profile.id, // placeholder password
+          password: 'google_oauth_' + profile.id,
           googleId: profile.id,
         });
-
-        return done(null, user);
+          return done(null, user);
       } catch (error) {
         return done(error, null);
       }
