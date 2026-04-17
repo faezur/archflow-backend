@@ -48,7 +48,7 @@ const generateWithStability = async (fileBuffer, prompt) => {
     const formData = new FormData();
     formData.append('image', fileBuffer, {
       filename: 'floorplan.png',
-      contentType: req.file.mimetype,
+      contentType: 'image/png',
     });
     formData.append('prompt', prompt);
     formData.append('negative_prompt', '2D, flat, sketch, blueprint, text, labels, dimensions, arrows, blurry, ugly, low quality, cartoon, painting');
