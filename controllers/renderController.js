@@ -167,14 +167,14 @@ const deleteRender = async (req, res) => {
     if (!render) return res.status(404).json({ message: 'Render not found' });
     if (render.user.toString() !== req.user._id.toString()) {
       return res.status(401).json({ message: 'Not authorized' });
-    }
+    } 
 
-    const extractPublicId = (url) => {
-      const parts = url.split('/');
-      const file = parts[parts.length - 1].split('.')[0];
-      const folder = parts[parts.length - 2];
-      return `${folder}/${file}`;
-    };
+        const extractPublicId = (url) => {
+        const parts = url.split('/');
+        const uploadIndex = parts.indexOf('upload');
+        const publicIdParts = parts.slice(uploadIndex + 2); 
+        return publicIdParts.join('/').replace(/\.[^/.]+$/, ''); 
+      };
 
     if (render.imageUrl) await cloudinary.uploader.destroy(extractPublicId(render.imageUrl));
     if (render.generatedImageUrl) await cloudinary.uploader.destroy(extractPublicId(render.generatedImageUrl));
