@@ -10,11 +10,22 @@ connectDB();
 
 const app = express();  
 
+const allowedOrigins = new Set([
+  'https://arch-flow-mu.vercel.app',
+  process.env.FRONTEND_URL,
+].filter(Boolean).map(origin => origin.trim()));
+
+const isLocalViteOrigin = (origin) =>
+  /^http:\/\/(localhost|127\.0\.0\.1):\d+$/.test(origin);
+
 const corsOptions = {
-  origin: [
-    'http://localhost:5173',
-    'https://arch-flow-mu.vercel.app'
-  ],
+  origin(origin, callback) {
+    if (!origin || allowedOrigins.has(origin) || isLocalViteOrigin(origin)) {
+      callback(null, true);
+      return;
+    }
+    callback(new Error(`CORS blocked for origin: ${origin}`));
+  },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
