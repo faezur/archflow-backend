@@ -1,190 +1,382 @@
 const Render = require('../models/Render');
+
 const { cloudinary } = require('../config/cloudinary');
+
 const axios = require('axios');
+
 const Groq = require('groq-sdk');
+
 const FormData = require('form-data');
+
 const { uploadToCloudinary } = require('../utils/cloudinaryHelper');
+
 const { withRetry } = require('../utils/withRetry');
 
-const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
+const groq = new Groq({
+  apiKey: process.env.GROQ_API_KEY,
+});
 
-const analyzeFloorPlan = async (fileBuffer, mimeType = 'image/jpeg') => {
-  return withRetry(async () => {
-    const base64Image = fileBuffer.toString('base64')
-    const dataUrl = `data:${mimeType};base64,${base64Image}`
 
-    const response = await groq.chat.completions.create({
-      model: 'openai/gpt-oss-120b',
-      messages: [
-        {
-          role: 'user',
-          content: [
-            {
-              type: 'image_url',
-              image_url: { url: dataUrl }
-            },
-            {
-              type: 'text',
-              text: process.env.GROQ_PROMPT
-            }
-          ]
-        }
-      ],
-      max_tokens: 500,
-    });
+// ─────────────────────────────────────────────────────────────
+// STEP 1: ANALYZE FLOOR PLAN WITH GROQ VISION
+// ─────────────────────────────────────────────────────────────
 
-    return response.choices[0].message.content
-      .trim()
-      .replace(/\n/g, ' ')
-      .replace(/;/g, ',')
-      .replace(/\s+/g, ' ')
-      .slice(0, 700);
+const analyzeFloorPlan = async (
+  fileBuffer,
+  mimeType = 'image/jpeg'
+) => {
+  return withRetry(
+    async () => {
+      const base64Image = fileBuffer.toString('base64');
 
-  }, 3, 3000, 'Groq');
+      const dataUrl = `data:${mimeType};base64,${base64Image}`;
+
+      const response = await groq.chat.completions.create({
+        model: 'qwen/qwen3.6-27b',
+
+        messages: [
+          {
+            role: 'user',
+
+            content: [
+              {
+                type: 'text',
+                text: process.env.GROQ_PROMPT,
+              },
+
+              {
+                type: 'image_url',
+                image_url: {
+                  url: dataUrl,
+                },
+              },
+            ],
+          },
+        ],
+
+        max_completion_tokens: 500,
+
+        reasoning_effort: 'none',
+      });
+
+      return response.choices[0].message.content
+        .trim()
+        .replace(/\n/g, ' ')
+        .replace(/;/g, ',')
+        .replace(/\s+/g, ' ')
+        .slice(0, 700);
+    },
+
+    3,
+    3000,
+    'Groq'
+  );
 };
+
+
+// ─────────────────────────────────────────────────────────────
+// STEP 2: GENERATE 3D RENDER WITH STABILITY AI
+// ─────────────────────────────────────────────────────────────
 
 const generateWithStability = async (fileBuffer, prompt) => {
-  return withRetry(async () => {
-    const formData = new FormData();
-    formData.append('image', fileBuffer, {
-      filename: 'floorplan.png',
-      contentType: 'image/png',
-    });
-    formData.append('prompt', prompt);
-    formData.append('negative_prompt', '2D, flat, sketch, blueprint, text, labels, dimensions, arrows, blurry, ugly, low quality, cartoon, painting');
-    formData.append('output_format', 'png');
-    formData.append('strength', '0.85');
-    formData.append('cfg_scale', '8');
+  return withRetry(
+    async () => {
+      const formData = new FormData();
 
-    const response = await axios.post(
-      'https://api.stability.ai/v2beta/stable-image/control/structure',
-      formData,
-      {
-        headers: {
-          ...formData.getHeaders(),
-          'Authorization': `Bearer ${process.env.STABILITY_API_KEY}`,
-          'Accept': 'image/*',
-        },
-        responseType: 'arraybuffer',
-        timeout: 120000,
+      formData.append('image', fileBuffer, {
+        filename: 'floorplan.png',
+        contentType: 'image/png',
+      });
+
+      formData.append('prompt', prompt);
+
+      formData.append(
+        'negative_prompt',
+        '2D, flat, sketch, blueprint, text, labels, dimensions, arrows, blurry, ugly, low quality, cartoon, painting'
+      );
+
+      formData.append('output_format', 'png');
+
+      formData.append('strength', '0.85');
+
+      formData.append('cfg_scale', '8');
+
+      const response = await axios.post(
+        'https://api.stability.ai/v2beta/stable-image/control/structure',
+        formData,
+        {
+          headers: {
+            ...formData.getHeaders(),
+
+            Authorization: `Bearer ${process.env.STABILITY_API_KEY}`,
+
+            Accept: 'image/*',
+          },
+
+          responseType: 'arraybuffer',
+
+          timeout: 120000,
+        }
+      );
+
+      if (response.data.byteLength < 5000) {
+        throw new Error('Stability returned invalid image');
       }
-    );
 
-    if (response.data.byteLength < 5000) {
-      throw new Error('Stability returned invalid image');
-    }
+      return Buffer.from(response.data);
+    },
 
-    return Buffer.from(response.data);
-  }, 3, 5000, 'Stability AI');
+    3,
+    5000,
+    'Stability AI'
+  );
 };
 
-// ─── ROUTE 1: Analyze — Groq prompt only (fast ~2-3s) ────────────────────────
+
+// ─────────────────────────────────────────────────────────────
+// ROUTE 1: ANALYZE
+// Groq Vision + Cloudinary Upload
+// ─────────────────────────────────────────────────────────────
+
 const analyzeRender = async (req, res) => {
   try {
     if (!req.file) {
-      return res.status(400).json({ message: 'No image file received' })
+      return res.status(400).json({
+        message: 'No image file received',
+      });
     }
 
-    // Step 1: Upload to Cloudinary (for storing original)
-    const uploadedImageUrl = await uploadToCloudinary(req.file.buffer, 'archflow/uploads')
-    console.log('✅ Cloudinary upload done')
+    // Step 1: Upload original image to Cloudinary
+    const uploadedImageUrl = await uploadToCloudinary(
+      req.file.buffer,
+      'archflow/uploads'
+    );
 
-    // Step 2: Groq — base64 image directly (bypasses Cloudinary 403)
-    const groqPrompt = await analyzeFloorPlan(req.file.buffer, req.file.mimetype)
-    console.log('✅ Groq Prompt:', groqPrompt)
+    console.log('✅ Cloudinary upload done');
 
-    res.status(200).json({ uploadedImageUrl, groqPrompt })
+    // Step 2: Analyze floor plan with Groq Vision
+    const groqPrompt = await analyzeFloorPlan(
+      req.file.buffer,
+      req.file.mimetype
+    );
 
+    console.log('✅ Groq Prompt:', groqPrompt);
+
+    return res.status(200).json({
+      uploadedImageUrl,
+      groqPrompt,
+    });
   } catch (error) {
-    console.error('❌ analyzeRender error:', error)
-    res.status(500).json({ message: error.message || 'Analysis failed. Please try again.' })
-  }
-}
+    console.error('❌ analyzeRender error:', error);
 
-// ─── ROUTE 2: Generate — Stability image (slow ~15-30s) ──────────────────────
+    return res.status(500).json({
+      message:
+        error.message ||
+        'Analysis failed. Please try again.',
+    });
+  }
+};
+
+
+// ─────────────────────────────────────────────────────────────
+// ROUTE 2: GENERATE
+// Stability AI + Cloudinary + MongoDB
+// ─────────────────────────────────────────────────────────────
+
 const createRender = async (req, res) => {
   try {
-    const { uploadedImageUrl, groqPrompt } = req.body;
+    const {
+      uploadedImageUrl,
+      groqPrompt,
+    } = req.body;
 
     if (!uploadedImageUrl || !groqPrompt) {
-      return res.status(400).json({ message: 'Missing uploadedImageUrl or groqPrompt' });
+      return res.status(400).json({
+        message:
+          'Missing uploadedImageUrl or groqPrompt',
+      });
     }
 
     if (!req.file) {
-      return res.status(400).json({ message: 'No image file received' });
+      return res.status(400).json({
+        message: 'No image file received',
+      });
     }
 
-    // Step 3: Stability AI — generate 3D render
+    // Step 3: Generate 3D render with Stability AI
     console.log('🎨 Calling Stability AI...');
-    const imageBuffer = await generateWithStability(req.file.buffer, groqPrompt);
-    console.log('✅ Stability image generated | Size:', imageBuffer.byteLength);
+
+    const imageBuffer = await generateWithStability(
+      req.file.buffer,
+      groqPrompt
+    );
+
+    console.log(
+      '✅ Stability image generated | Size:',
+      imageBuffer.byteLength
+    );
 
     // Step 4: Upload generated image to Cloudinary
-    const generatedImageUrl = await uploadToCloudinary(imageBuffer, 'archflow/generated');
-    console.log('✅ Generated image on Cloudinary:', generatedImageUrl);
+    const generatedImageUrl =
+      await uploadToCloudinary(
+        imageBuffer,
+        'archflow/generated'
+      );
 
-    // Step 5: Save to MongoDB
+    console.log(
+      '✅ Generated image on Cloudinary:',
+      generatedImageUrl
+    );
+
+    // Step 5: Save render history to MongoDB
     const render = await Render.create({
       user: req.user._id,
+
       imageUrl: uploadedImageUrl,
+
       generatedImageUrl,
+
       groqPrompt,
+
       status: 'completed',
     });
 
-    res.status(201).json(render);
-
+    return res.status(201).json(render);
   } catch (error) {
-    console.error('❌ createRender error:', error.message);
+    console.error(
+      '❌ createRender error:',
+      error.message
+    );
 
     const status = error.response?.status;
-    let message = 'Something went wrong. Please try again.';
 
-    if (status === 429)      message = 'Too many requests. Please wait a moment and try again.';
-    else if (status === 402) message = 'Service credits exhausted. Please try again later.';
-    else if (status === 401) message = 'API authentication failed. Please contact support.';
-    else if (status >= 500)  message = 'AI service is temporarily unavailable. Please try again in a few seconds.';
-    else if (error.message?.includes('timeout')) message = 'Request timed out. Please try again.';
+    let message =
+      'Something went wrong. Please try again.';
 
-    res.status(500).json({ message });
+    if (status === 429) {
+      message =
+        'Too many requests. Please wait a moment and try again.';
+    } else if (status === 402) {
+      message =
+        'Service credits exhausted. Please try again later.';
+    } else if (status === 401) {
+      message =
+        'API authentication failed. Please contact support.';
+    } else if (status >= 500) {
+      message =
+        'AI service is temporarily unavailable. Please try again in a few seconds.';
+    } else if (
+      error.message?.toLowerCase().includes('timeout')
+    ) {
+      message =
+        'Request timed out. Please try again.';
+    }
+
+    return res.status(500).json({
+      message,
+    });
   }
 };
 
-// ─── Get Renders ──────────────────────────────────────────────────────────────
+
+// ─────────────────────────────────────────────────────────────
+// GET RENDERS
+// ─────────────────────────────────────────────────────────────
+
 const getRenders = async (req, res) => {
   try {
-    const renders = await Render.find({ user: req.user._id }).sort({ createdAt: -1 });
-    res.status(200).json(renders);
+    const renders = await Render.find({
+      user: req.user._id,
+    }).sort({
+      createdAt: -1,
+    });
+
+    return res.status(200).json(renders);
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    return res.status(500).json({
+      message: error.message,
+    });
   }
 };
 
-// ─── Delete Render ────────────────────────────────────────────────────────────
+
+// ─────────────────────────────────────────────────────────────
+// DELETE RENDER
+// ─────────────────────────────────────────────────────────────
+
 const deleteRender = async (req, res) => {
   try {
-    const render = await Render.findById(req.params.id);
-    if (!render) return res.status(404).json({ message: 'Render not found' });
-    if (render.user.toString() !== req.user._id.toString()) {
-      return res.status(401).json({ message: 'Not authorized' });
-    } 
+    const render = await Render.findById(
+      req.params.id
+    );
 
-        const extractPublicId = (url) => {
-        const parts = url.split('/');
-        const uploadIndex = parts.indexOf('upload');
-        const publicIdParts = parts.slice(uploadIndex + 2); 
-        return publicIdParts.join('/').replace(/\.[^/.]+$/, ''); 
-      };
+    if (!render) {
+      return res.status(404).json({
+        message: 'Render not found',
+      });
+    }
 
-    if (render.imageUrl) await cloudinary.uploader.destroy(extractPublicId(render.imageUrl));
-    if (render.generatedImageUrl) await cloudinary.uploader.destroy(extractPublicId(render.generatedImageUrl));
+    if (
+      render.user.toString() !==
+      req.user._id.toString()
+    ) {
+      return res.status(401).json({
+        message: 'Not authorized',
+      });
+    }
 
+    // Extract Cloudinary public ID
+    const extractPublicId = (url) => {
+      const parts = url.split('/');
+
+      const uploadIndex =
+        parts.indexOf('upload');
+
+      const publicIdParts =
+        parts.slice(uploadIndex + 2);
+
+      return publicIdParts
+        .join('/')
+        .replace(/\.[^/.]+$/, '');
+    };
+
+    // Delete original image
+    if (render.imageUrl) {
+      await cloudinary.uploader.destroy(
+        extractPublicId(render.imageUrl)
+      );
+    }
+
+    // Delete generated image
+    if (render.generatedImageUrl) {
+      await cloudinary.uploader.destroy(
+        extractPublicId(
+          render.generatedImageUrl
+        )
+      );
+    }
+
+    // Delete MongoDB record
     await render.deleteOne();
-    res.status(200).json({ message: 'Render deleted' });
 
+    return res.status(200).json({
+      message: 'Render deleted',
+    });
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    return res.status(500).json({
+      message: error.message,
+    });
   }
 };
 
-module.exports = { analyzeRender, createRender, getRenders, deleteRender };
+
+// ─────────────────────────────────────────────────────────────
+// EXPORTS
+// ─────────────────────────────────────────────────────────────
+
+module.exports = {
+  analyzeRender,
+  createRender,
+  getRenders,
+  deleteRender,
+};
