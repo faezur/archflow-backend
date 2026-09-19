@@ -67,8 +67,15 @@ const analyzeFloorPlan = async (
         }
       );
 
-      const content =
-        response.data?.choices?.[0]?.message?.content;
+      console.log(
+  '🔍 OPENROUTER RAW RESPONSE:',
+  JSON.stringify(response.data, null, 2)
+);
+
+     const content =
+  response.data?.choices?.[0]?.message?.content ||
+  response.data?.choices?.[0]?.message?.reasoning;
+
 
       if (!content) {
         throw new Error(
@@ -90,13 +97,7 @@ const analyzeFloorPlan = async (
   );
 };
 
-const content =
-  response.data?.choices?.[0]?.message?.content ||
-  response.data?.choices?.[0]?.message?.reasoning;
 
-if (!content) {
-  throw new Error('OpenRouter returned an empty response');
-}
 
 // ─────────────────────────────────────────────────────────────
 // STEP 2: GENERATE 3D RENDER WITH STABILITY AI
