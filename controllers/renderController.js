@@ -90,6 +90,12 @@ const analyzeFloorPlan = async (
   );
 };
 
+console.log(
+  '🔍 OPENROUTER RAW RESPONSE:',
+  JSON.stringify(response.data, null, 2)
+);
+
+const content = response.data?.choices?.[0]?.message?.content;
 
 // ─────────────────────────────────────────────────────────────
 // STEP 2: GENERATE 3D RENDER WITH STABILITY AI
