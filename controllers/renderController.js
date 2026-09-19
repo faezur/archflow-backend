@@ -4,21 +4,15 @@ const { cloudinary } = require('../config/cloudinary');
 
 const axios = require('axios');
 
-const Groq = require('groq-sdk');
-
 const FormData = require('form-data');
 
 const { uploadToCloudinary } = require('../utils/cloudinaryHelper');
 
 const { withRetry } = require('../utils/withRetry');
 
-const groq = new Groq({
-  apiKey: process.env.GROQ_API_KEY,
-});
-
 
 // ─────────────────────────────────────────────────────────────
-// STEP 1: ANALYZE FLOOR PLAN WITH GROQ VISION
+// STEP 1: ANALYZE FLOOR PLAN WITH OPENROUTER FREE VISION
 // ─────────────────────────────────────────────────────────────
 
 const analyzeFloorPlan = async (
@@ -31,35 +25,58 @@ const analyzeFloorPlan = async (
 
       const dataUrl = `data:${mimeType};base64,${base64Image}`;
 
-      const response = await groq.chat.completions.create({
-        model: 'qwen/qwen3.6-27b',
+      const response = await axios.post(
+        'https://openrouter.ai/api/v1/chat/completions',
+        {
+          model: 'openrouter/free',
 
-        messages: [
-          {
-            role: 'user',
+          messages: [
+            {
+              role: 'user',
 
-            content: [
-              {
-                type: 'text',
-                text: process.env.GROQ_PROMPT,
-              },
-
-              {
-                type: 'image_url',
-                image_url: {
-                  url: dataUrl,
+              content: [
+                {
+                  type: 'text',
+                  text: process.env.GROQ_PROMPT,
                 },
-              },
-            ],
+
+                {
+                  type: 'image_url',
+                  image_url: {
+                    url: dataUrl,
+                  },
+                },
+              ],
+            },
+          ],
+
+          max_tokens: 500,
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
+            'Content-Type': 'application/json',
+
+            'HTTP-Referer':
+              'https://arch-flow-mu.vercel.app',
+
+            'X-Title': 'ArchFlow',
           },
-        ],
 
-        max_completion_tokens: 500,
+          timeout: 120000,
+        }
+      );
 
-        reasoning_effort: 'none',
-      });
+      const content =
+        response.data?.choices?.[0]?.message?.content;
 
-      return response.choices[0].message.content
+      if (!content) {
+        throw new Error(
+          'OpenRouter returned an empty response'
+        );
+      }
+
+      return content
         .trim()
         .replace(/\n/g, ' ')
         .replace(/;/g, ',')
@@ -69,7 +86,7 @@ const analyzeFloorPlan = async (
 
     3,
     3000,
-    'Groq'
+    'OpenRouter'
   );
 };
 
@@ -78,7 +95,10 @@ const analyzeFloorPlan = async (
 // STEP 2: GENERATE 3D RENDER WITH STABILITY AI
 // ─────────────────────────────────────────────────────────────
 
-const generateWithStability = async (fileBuffer, prompt) => {
+const generateWithStability = async (
+  fileBuffer,
+  prompt
+) => {
   return withRetry(
     async () => {
       const formData = new FormData();
@@ -120,7 +140,9 @@ const generateWithStability = async (fileBuffer, prompt) => {
       );
 
       if (response.data.byteLength < 5000) {
-        throw new Error('Stability returned invalid image');
+        throw new Error(
+          'Stability returned invalid image'
+        );
       }
 
       return Buffer.from(response.data);
@@ -135,7 +157,7 @@ const generateWithStability = async (fileBuffer, prompt) => {
 
 // ─────────────────────────────────────────────────────────────
 // ROUTE 1: ANALYZE
-// Groq Vision + Cloudinary Upload
+// OpenRouter Vision + Cloudinary Upload
 // ─────────────────────────────────────────────────────────────
 
 const analyzeRender = async (req, res) => {
@@ -147,30 +169,38 @@ const analyzeRender = async (req, res) => {
     }
 
     // Step 1: Upload original image to Cloudinary
-    const uploadedImageUrl = await uploadToCloudinary(
-      req.file.buffer,
-      'archflow/uploads'
-    );
+    const uploadedImageUrl =
+      await uploadToCloudinary(
+        req.file.buffer,
+        'archflow/uploads'
+      );
 
     console.log('✅ Cloudinary upload done');
 
-    // Step 2: Analyze floor plan with Groq Vision
+    // Step 2: Analyze floor plan with OpenRouter
     const groqPrompt = await analyzeFloorPlan(
       req.file.buffer,
       req.file.mimetype
     );
 
-    console.log('✅ Groq Prompt:', groqPrompt);
+    console.log(
+      '✅ OpenRouter Analysis:',
+      groqPrompt
+    );
 
     return res.status(200).json({
       uploadedImageUrl,
       groqPrompt,
     });
   } catch (error) {
-    console.error('❌ analyzeRender error:', error);
+    console.error(
+      '❌ analyzeRender error:',
+      error.response?.data || error
+    );
 
     return res.status(500).json({
       message:
+        error.response?.data?.error?.message ||
         error.message ||
         'Analysis failed. Please try again.',
     });
@@ -204,12 +234,15 @@ const createRender = async (req, res) => {
     }
 
     // Step 3: Generate 3D render with Stability AI
-    console.log('🎨 Calling Stability AI...');
-
-    const imageBuffer = await generateWithStability(
-      req.file.buffer,
-      groqPrompt
+    console.log(
+      '🎨 Calling Stability AI...'
     );
+
+    const imageBuffer =
+      await generateWithStability(
+        req.file.buffer,
+        groqPrompt
+      );
 
     console.log(
       '✅ Stability image generated | Size:',
@@ -245,10 +278,11 @@ const createRender = async (req, res) => {
   } catch (error) {
     console.error(
       '❌ createRender error:',
-      error.message
+      error.response?.data || error.message
     );
 
-    const status = error.response?.status;
+    const status =
+      error.response?.status;
 
     let message =
       'Something went wrong. Please try again.';
@@ -266,7 +300,9 @@ const createRender = async (req, res) => {
       message =
         'AI service is temporarily unavailable. Please try again in a few seconds.';
     } else if (
-      error.message?.toLowerCase().includes('timeout')
+      error.message
+        ?.toLowerCase()
+        .includes('timeout')
     ) {
       message =
         'Request timed out. Please try again.';
@@ -343,7 +379,9 @@ const deleteRender = async (req, res) => {
     // Delete original image
     if (render.imageUrl) {
       await cloudinary.uploader.destroy(
-        extractPublicId(render.imageUrl)
+        extractPublicId(
+          render.imageUrl
+        )
       );
     }
 
